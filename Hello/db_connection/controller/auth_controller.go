@@ -7,25 +7,76 @@ import (
 	"main/model"
 	"net/http"
 	"os"
+	"text/template"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/sessions"
 	"golang.org/x/crypto/bcrypt"
 )
 
+var store = sessions.NewCookieStore([]byte("super-secret-key"))
+
 func LoginUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		tmpl := template.Must(template.ParseFiles("template/login.html"))
+		tmpl.Execute(w, nil)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var req model.LoginRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+
+	// Try form data parsing first for HTML form submission
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
 	}
+	req.Username = r.FormValue("username")
+	req.Password = r.FormValue("password")
+
+	// Perform validation
+	errors := make(map[string]string)
+
+	if req.Username == "" {
+		errors["Username"] = "Username is required"
+	}
+
+	if len(req.Password) < 6 {
+		errors["Password"] = "Password must be at least 6 characters long"
+	}
+
+	if len(errors) > 0 {
+		tmpl := template.Must(template.ParseFiles("template/login.html"))
+		data := map[string]interface{}{
+			"Errors": errors,
+			"User":   req,
+		}
+		tmpl.Execute(w, data)
+		return
+	}
+
+	// If you want to also support JSON payloads (e.g., for API clients), optionally try JSON decode if form values are empty
+	// if req.Username == "" || req.Password == "" {
+	// 	err := json.NewDecoder(r.Body).Decode(&req)
+	// 	if err != nil {
+	// 		http.Error(w, "Username and password required", http.StatusBadRequest)
+	// 		return
+	// 	}
+	// }
+
+	// if req.Username == "" || req.Password == "" {
+	// 	http.Error(w, "Username and password required", http.StatusBadRequest)
+	// 	return
+	// }
+
+	// fmt.Println("Username:", req.Username, "Password:", req.Password)
+
 	var storedPassword string
-	err = db.QueryRow("SELECT password FROM users WHERE username = ?", req.Username).Scan(&storedPassword)
+	err := db.QueryRow("SELECT password FROM users WHERE username = ?", req.Username).Scan(&storedPassword)
 	if err == sql.ErrNoRows {
 		http.Error(w, "User not found", http.StatusUnauthorized)
 		return
@@ -40,6 +91,15 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create session
+	session, _ := store.Get(r, "session")
+	session.Values["authenticated"] = true
+	session.Values["username"] = req.Username
+	session.Values["password"] = req.Password
+
+	// Save session
+	session.Save(r, w)
+
 	token, err := createToken(req.Username)
 	if err != nil {
 		fmt.Println("error found", err)
@@ -47,8 +107,20 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	http.SetCookie(w, &http.Cookie{
+		Name:     "user_token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false,
+	})
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "Login successful", "token": token})
+	// tmpl := template.Must(template.ParseFiles("template/login.html"))
+	// tmpl.Execute(w, map[string]string{"Token": token})
 }
 
 func createToken(username string) (string, error) {

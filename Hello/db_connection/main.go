@@ -27,6 +27,7 @@ func main() {
 
 	route.RegisterUserRoutes()
 	route.RegisterVideoRoutes()
+	http.HandleFunc("/delete_user", controller.DeleteUser)
 
 	log.Println("Server starting on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))

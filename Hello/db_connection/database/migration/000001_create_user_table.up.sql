@@ -9,3 +9,7 @@ CREATE TABLE users (
   followings_count INT DEFAULT 0,
   registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE users
+ADD CONSTRAINT unique_username UNIQUE (username);
+

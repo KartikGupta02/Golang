@@ -3,9 +3,13 @@ package controller
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"main/model"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
+	"text/template"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -16,11 +20,80 @@ func SetDB(database *sql.DB) {
 	db = database
 }
 
-func CreateUser(w http.ResponseWriter, r *http.Request) {
-	var user model.User
-	err := json.NewDecoder(r.Body).Decode(&user)
+func GetHtmlData(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := template.ParseFiles("template/navbar.html", "template/index.html")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Error parsing template: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data := map[string]string{
+		"firstName": "Kartik",
+		"lastName":  "Gupta",
+	}
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, "Error executing template: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func CreateUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		tmpl := template.Must(template.ParseFiles("template/registerUser.html"))
+		tmpl.Execute(w, nil)
+		return
+	}
+
+	var user model.User
+	if r.Header.Get("Content-Type") == "application/json" {
+		// JSON request (API/React/JS clients)
+		err := json.NewDecoder(r.Body).Decode(&user)
+		if err != nil {
+			http.Error(w, "Invalid JSON data", http.StatusBadRequest)
+			return
+		}
+	} else {
+		// Standard HTML Form (browser, Postman x-www-form)
+		err := r.ParseForm()
+		if err != nil {
+			http.Error(w, "Invalid form data", http.StatusBadRequest)
+			return
+		}
+
+		// Create user object from form values
+		user.Username = strings.TrimSpace(r.FormValue("username"))
+		user.Email = strings.TrimSpace(r.FormValue("email"))
+		user.Password = strings.TrimSpace(r.FormValue("password"))
+		// user.ProfilePictureURL = r.FormValue("profile_picture_url")
+		// user.Bio = r.FormValue("bio")
+		// followersCount, _ := strconv.Atoi(r.FormValue("followers_count"))
+		// user.FollowersCount = followersCount
+		// followingsCount, _ := strconv.Atoi(r.FormValue("followings_count"))
+		// user.FollowingsCount = followingsCount
+	}
+
+	// Perform validation
+	errors := make(map[string]string)
+
+	if user.Username == "" {
+		errors["Username"] = "Username is required"
+	}
+
+	emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$`)
+	if user.Email == "" || !emailRegex.MatchString(user.Email) {
+		errors["Email"] = "Invalid or missing email"
+	}
+
+	if len(user.Password) < 6 {
+		errors["Password"] = "Password must be at least 6 characters long"
+	}
+
+	if len(errors) > 0 {
+		tmpl := template.Must(template.ParseFiles("template/registerUser.html"))
+		data := map[string]interface{}{
+			"Errors": errors,
+			"User":   user,
+		}
+		tmpl.Execute(w, data)
 		return
 	}
 
@@ -46,9 +119,39 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	userID, _ := result.LastInsertId()
 	user.UserID = int(userID)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
 
+	// http.Redirect(w, r, "/register-success", http.StatusSeeOther)
+	// // w.Header().Set("Content-Type", "application/json")
+	// // json.NewEncoder(w).Encode(user)
+	// // tmpl := template.Must(template.ParseFiles("templates/registerUser.html"))
+	// // tmpl.Execute(w, user)
+	// http.HandleFunc("/register-success", func(w http.ResponseWriter, r *http.Request) {
+	// tmpl := template.Must(template.ParseFiles("template/navbar.html", "template/index.html"))
+	// tmpl.Execute(w, nil)
+	http.Redirect(w, r, "/get_all_users", http.StatusSeeOther)
+	// })
+
+}
+
+func GetUsers(w http.ResponseWriter, r *http.Request) {
+	users := []model.User{}
+	rows, err := db.Query("SELECT user_id, username, email, password, profile_picture_url, bio, followers_count, followings_count FROM users")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		user := model.User{}
+		err := rows.Scan(&user.UserID, &user.Username, &user.Email, &user.Password, &user.ProfilePictureURL, &user.Bio, &user.FollowersCount, &user.FollowingsCount)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		users = append(users, user)
+	}
+	tmpl := template.Must(template.ParseFiles("template/navbar.html", "template/getUserList.html"))
+	tmpl.Execute(w, users)
 }
 
 func GetUser(w http.ResponseWriter, r *http.Request) {
@@ -92,12 +195,14 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func DeleteUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
+	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	id := r.URL.Query().Get("id")
+	// id := r.URL.Query().Get("id")
+	id := r.FormValue("id")
+	log.Println("Form value id:", id)
 	UserID, err := strconv.Atoi(id)
 	if err != nil {
 		http.Error(w, "Invalid user ID", http.StatusBadRequest)
@@ -117,7 +222,8 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	// w.WriteHeader(http.StatusNoContent)
+	http.Redirect(w, r, "/get_all_users", http.StatusSeeOther)
 }
 
 func UpdateUser(w http.ResponseWriter, r *http.Request) {
