@@ -7,9 +7,9 @@ import (
 )
 
 func RegisterUserRoutes() {
-	http.HandleFunc("/", controller.GetHtmlData)
+	http.HandleFunc("/home", controller.GetHtmlData)
 
-	http.HandleFunc("/users", controller.CreateUser)
+	http.HandleFunc("/create_user", controller.CreateUser)
 	http.HandleFunc("/get_all_users", controller.GetUsers)
 	http.HandleFunc("/users/get", controller.GetUser)
 	http.HandleFunc("/users/delete", middleware.AuthMiddleware(controller.DeleteUser))

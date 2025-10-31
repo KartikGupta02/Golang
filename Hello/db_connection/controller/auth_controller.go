@@ -115,7 +115,7 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 		Secure:   false,
 	})
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/home", http.StatusSeeOther)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "Login successful", "token": token})
