@@ -3,6 +3,7 @@ package controller
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"main/model"
 	"net/http"
@@ -21,15 +22,49 @@ func SetDB(database *sql.DB) {
 }
 
 func GetHtmlData(w http.ResponseWriter, r *http.Request) {
+	// Get session store from auth_controller
+	store := GetSessionStore()
+
+	// Retrieve session
+	session, err := store.Get(r, "session")
+	if err != nil {
+		fmt.Printf("Error getting session: %v\n", err)
+		// Continue with default data if session error
+	}
+
+	// Extract session values
+	authenticated := false
+	username := ""
+	password := ""
+
+	if session != nil {
+		if auth, ok := session.Values["authenticated"].(bool); ok {
+			authenticated = auth
+		}
+		if user, ok := session.Values["username"].(string); ok {
+			username = user
+		}
+		if pass, ok := session.Values["password"].(string); ok {
+			password = pass
+		}
+	}
+
 	tmpl, err := template.ParseFiles("template/navbar.html", "template/index.html")
 	if err != nil {
 		http.Error(w, "Error parsing template: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	data := map[string]string{
-		"firstName": "Kartik",
-		"lastName":  "Gupta",
+
+	data := map[string]interface{}{
+		"firstName":     "Kartik",
+		"lastName":      "Gupta",
+		"Authenticated": authenticated,
+		"Username":      username,
+		"Password":      password,
 	}
+
+	fmt.Printf("Session values - Authenticated: %v, Username: %s, Password: %s\n", authenticated, username, password)
+
 	if err := tmpl.Execute(w, data); err != nil {
 		http.Error(w, "Error executing template: "+err.Error(), http.StatusInternalServerError)
 		return

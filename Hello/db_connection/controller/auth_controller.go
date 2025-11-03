@@ -2,7 +2,6 @@ package controller
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"main/model"
 	"net/http"
@@ -16,6 +15,22 @@ import (
 )
 
 var store = sessions.NewCookieStore([]byte("super-secret-key"))
+
+// GetSessionStore returns the session store for use in other packages
+func GetSessionStore() *sessions.CookieStore {
+	return store
+}
+
+func init() {
+	// Configure session store options
+	store.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 7, // 7 days
+		HttpOnly: true,
+		Secure:   false, // Set to true if using HTTPS
+		SameSite: http.SameSiteLaxMode,
+	}
+}
 
 func LoginUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
@@ -92,13 +107,22 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create session
-	session, _ := store.Get(r, "session")
+	session, err := store.Get(r, "session")
+	if err != nil {
+		fmt.Printf("Error getting session: %v\n", err)
+		http.Error(w, "Session error", http.StatusInternalServerError)
+		return
+	}
 	session.Values["authenticated"] = true
 	session.Values["username"] = req.Username
 	session.Values["password"] = req.Password
 
 	// Save session
-	session.Save(r, w)
+	if err := session.Save(r, w); err != nil {
+		fmt.Printf("Error saving session: %v\n", err)
+		http.Error(w, "Failed to save session", http.StatusInternalServerError)
+		return
+	}
 
 	token, err := createToken(req.Username)
 	if err != nil {
@@ -116,11 +140,6 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 	})
 
 	http.Redirect(w, r, "/home", http.StatusSeeOther)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "Login successful", "token": token})
-	// tmpl := template.Must(template.ParseFiles("template/login.html"))
-	// tmpl.Execute(w, map[string]string{"Token": token})
 }
 
 func createToken(username string) (string, error) {
